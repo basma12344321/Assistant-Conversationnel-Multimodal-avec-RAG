@@ -1,6 +1,3 @@
-import json
-
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,31 +29,13 @@ class Settings(BaseSettings):
 
     # Divers
     environment: str = "development"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
-
-    @classmethod
-    def parse_env_var(cls, field_name, raw_val):
-        if field_name == "cors_origins":
-            if raw_val is None:
-                return ["http://localhost:3000"]
-            if isinstance(raw_val, str):
-                value = raw_val.strip()
-                if not value:
-                    return []
-                if value.startswith("[") and value.endswith("]"):
-                    try:
-                        parsed = json.loads(value)
-                        if isinstance(parsed, list):
-                            return parsed
-                    except json.JSONDecodeError:
-                        pass
-                return [item.strip() for item in value.split(",") if item.strip()]
-            if isinstance(raw_val, list):
-                return raw_val
-            return [str(raw_val)]
-        return super().parse_env_var(field_name, raw_val)
+    cors_origins: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()
