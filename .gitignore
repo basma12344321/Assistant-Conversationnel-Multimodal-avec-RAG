@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Environnement
+.env
+*.env.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+.turbo/
+
+# Données locales (dev uniquement)
+data/documents/*
+!data/documents/.gitkeep
+data/qdrant_storage/*
+!data/qdrant_storage/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
