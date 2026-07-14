@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
 
     # Qdrant
+    qdrant_mode: str = "local"  # "local" (embarqué sur disque, pas besoin de Docker) ou "server" (via Docker)
+    qdrant_local_path: str = "../data/qdrant_local"
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
     qdrant_collection: str = "documents"
@@ -26,6 +28,10 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "changeme"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+
+    # Stockage fichiers
+    storage_backend: str = "local"
+    storage_bucket: str = "documents"
 
     # Divers
     environment: str = "development"
