@@ -7,7 +7,7 @@ from app.multimodal.document_parser import parse_document
 from app.rag.chunking import chunk_sections
 from app.rag.embeddings import embed_chunks
 
-NB_SECTIONS_A_INDEXER = 15  # augmente progressivement si tout se passe bien
+NB_SECTIONS_A_INDEXER = 150  # augmente progressivement si tout se passe bien
 
 client = get_qdrant_client()
 if client.collection_exists(settings.qdrant_collection):

@@ -88,11 +88,12 @@ def _parse_docx(file_path: str) -> list[Section]:
 def _parse_pdf(file_path: str) -> list[Section]:
     """Extrait le texte d'un PDF, structuré par section quand c'est possible.
 
-    Priorité 1 : signets/marque-pages intégrés au PDF (l'"outline"). Pour chaque
-    signet, on localise la position verticale EXACTE du titre sur sa page (pas
-    juste "quelle page"), ce qui permet de découper correctement même quand
-    deux sections différentes partagent la même page — cas fréquent dans les
-    documents à sections courtes.
+    Priorité 1 : signets/marque-pages intégrés au PDF (l'"outline"). Comme
+    beaucoup de PDF n'ont des signets qu'au niveau chapitre, on affine ensuite
+    en détectant les sous-titres à l'intérieur de chaque chapitre (texte en
+    police plus grande/grasse que le corps), pour des citations plus précises
+    (ex. "What is Git? — Nearly Every Operation Is Local" plutôt qu'un seul
+    gros bloc "What is Git?").
     Priorité 2 (repli) : si le PDF n'a aucun signet, une section par page.
     """
     import pdfplumber
@@ -121,9 +122,19 @@ def _parse_pdf(file_path: str) -> list[Section]:
 
         located.sort(key=lambda x: (x["page"], x["top"]))
 
-        sections = []
+        # Affinage : détecte les sous-titres à l'intérieur de chaque section
+        # top-level (le PDF n'a souvent des signets qu'au niveau chapitre).
+        body_size = _estimate_body_font_size(pdf)
+        all_items = list(located)
         for idx, item in enumerate(located):
             next_item = located[idx + 1] if idx + 1 < len(located) else None
+            all_items.extend(_detect_subheadings(pdf, item, next_item, total_pages, body_size))
+
+        all_items.sort(key=lambda x: (x["page"], x["top"]))
+
+        sections = []
+        for idx, item in enumerate(all_items):
+            next_item = all_items[idx + 1] if idx + 1 < len(all_items) else None
             text = _extract_section_text(pdf, item, next_item, total_pages)
             if text.strip():
                 sections.append(Section(title=item["title"], text=text.strip()))
@@ -207,6 +218,78 @@ def _extract_section_text(pdf, item: dict, next_item: dict | None, total_pages: 
 
     return "\n\n".join(p.strip() for p in parts if p and p.strip())
 
+def _estimate_body_font_size(pdf) -> float:
+    """Estime la taille de police du corps de texte du document (la plus
+    fréquente), en échantillonnant un lot de pages internes plutôt que la
+    première/dernière page (souvent atypiques : couverture, table des
+    matières...).
+    """
+    from collections import Counter
+
+    sizes = Counter()
+    pages = pdf.pages
+    sample = pages[10:60] if len(pages) > 60 else pages
+    for page in sample:
+        for w in page.extract_words(extra_attrs=["size"]):
+            sizes[round(w["size"], 1)] += 1
+
+    if not sizes:
+        return 11.0
+    return sizes.most_common(1)[0][0]
+
+
+def _detect_subheadings(pdf, parent_item: dict, next_item: dict | None, total_pages: int, body_size: float) -> list[dict]:
+    """Cherche des sous-titres à l'intérieur d'une section (entre le titre
+    de la section et le titre suivant), en repérant les lignes en police
+    plus grande et/ou grasse que le corps du texte — typique des sous-titres
+    dans un PDF sans signet dédié pour chaque sous-partie.
+    """
+    start_page, start_top = parent_item["page"], parent_item["top"]
+    end_page = next_item["page"] if next_item else total_pages - 1
+    end_top = next_item["top"] if next_item else None
+
+    results = []
+    for p in range(start_page, end_page + 1):
+        page = pdf.pages[p]
+        words = page.extract_words(extra_attrs=["size", "fontname"])
+        if not words:
+            continue
+
+        lines: dict[float, list] = {}
+        for w in words:
+            key = round(w["top"])
+            lines.setdefault(key, []).append(w)
+
+        for top_key in sorted(lines):
+            ws = sorted(lines[top_key], key=lambda w: w["x0"])
+            top = ws[0]["top"]
+
+            if p == start_page and top <= start_top + 1:
+                continue  # c'est le titre de la section elle-même
+            if p == end_page and end_top is not None and top >= end_top - 1:
+                continue  # on est déjà entré dans la section suivante
+
+            avg_size = sum(w["size"] for w in ws) / len(ws)
+            is_bold = any("bold" in (w.get("fontname") or "").lower() for w in ws)
+            word_count = len(ws)
+
+            text = " ".join(w["text"] for w in ws)
+            has_real_words = bool(re.search(r"[A-Za-z]{3,}", text))
+
+            looks_like_heading = (
+                word_count <= 12
+                and avg_size > body_size * 1.1
+                and (is_bold or avg_size > body_size * 1.3)
+                and has_real_words
+            )
+            if looks_like_heading:
+                results.append({
+                    "title": f"{parent_item['title']} — {text}",
+                    "page": p,
+                    "top": top,
+                })
+
+    return results
 
 def _flatten_pdf_outline(reader) -> list[tuple[str, int]]:
     """Aplatit les signets d'un PDF en liste [(titre, index_page), ...] triée par page.
