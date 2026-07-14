@@ -29,11 +29,10 @@ def chunk_document(
     chunk_size: int = DEFAULT_CHUNK_SIZE_CHARS,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP_CHARS,
 ) -> list[Chunk]:
-    """Découpe un texte brut en chunks sémantiques cohérents.
+    """Découpe un texte brut (sans notion de section) en chunks sémantiques.
 
-    Le splitter essaie d'abord de couper aux sauts de paragraphe ("\\n\\n"),
-    puis aux phrases, puis aux mots — dans cet ordre — pour éviter de couper
-    au milieu d'une idée tant que possible.
+    À utiliser seulement si le document n'a pas de structure de sections
+    (cas rare depuis document_parser.py) — sinon préférer chunk_sections().
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -58,8 +57,53 @@ def chunk_document(
     ]
 
 
+def chunk_sections(
+    sections: list,  # list[app.multimodal.document_parser.Section]
+    source_filename: str,
+    chunk_size: int = DEFAULT_CHUNK_SIZE_CHARS,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP_CHARS,
+) -> list[Chunk]:
+    """Découpe une liste de sections (sortie de document_parser.parse_document)
+    en chunks, SANS jamais faire chevaucher deux sections dans un même chunk.
+
+    Chaque chunk garde le titre de sa section d'origine en métadonnée
+    (clé "section"), ce qui permet la citation précise attendue
+    (ex. "section Gestion des rôles et permissions") plutôt qu'un simple nom
+    de fichier.
+    """
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+
+    all_chunks: list[Chunk] = []
+    global_index = 0
+
+    for section in sections:
+        raw_chunks = splitter.split_text(section.text)
+        for raw_chunk in raw_chunks:
+            all_chunks.append(
+                Chunk(
+                    text=raw_chunk,
+                    chunk_index=global_index,
+                    source_filename=source_filename,
+                    metadata={
+                        "filename": source_filename,
+                        "section": section.title,
+                        "chunk_index": global_index,
+                        "char_count": len(raw_chunk),
+                    },
+                )
+            )
+            global_index += 1
+
+    return all_chunks
+
+
 if __name__ == "__main__":
     # Test rapide : lance `python -m app.rag.chunking` depuis backend/
+    # après avoir mis un .txt de test dans data/documents/
     sample_text = (
         "Le RAG (Retrieval-Augmented Generation) permet d'ancrer les réponses d'un LLM "
         "dans une base documentaire interne.\n\n"
