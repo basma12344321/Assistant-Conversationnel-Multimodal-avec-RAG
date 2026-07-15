@@ -11,6 +11,7 @@ from app.config import settings
 from app.db.vector_store import get_qdrant_client
 from app.db.vector_store import search as dense_search
 from app.rag.embeddings import embed_texts
+from app.rag.reranker import rerank
 
 RRF_K = 60  # constante standard de la fusion RRF (cf. littérature RRF)
 
@@ -55,11 +56,12 @@ def _bm25_search(query: str, corpus: list[dict], top_k: int) -> list[str]:
     return [item["id"] for item, _score in ranked[:top_k]]
 
 
-def retrieve(query: str, top_k: int = 5, candidates_per_method: int = 30) -> list[dict]:
-    """Recherche hybride : dense (sémantique) + BM25 (lexicale), fusionnées par RRF.
+def retrieve(query: str, top_k: int = 5, candidates_per_method: int = 30, rerank_pool_size: int = 15) -> list[dict]:
+    """Recherche hybride : dense (sémantique) + BM25 (lexicale), fusionnées par RRF,
+    puis réévaluées finement par un cross-encoder (reranker.rerank).
 
     Retourne une liste de dicts triés par pertinence décroissante :
-    [{"text", "filename", "section", "score"}, ...]
+    [{"text", "filename", "section", "rrf_score", "rerank_score"}, ...]
     """
     query_vector = embed_texts([query])[0]
 
@@ -67,7 +69,6 @@ def retrieve(query: str, top_k: int = 5, candidates_per_method: int = 30) -> lis
     corpus = _load_corpus()
     bm25_ids = _bm25_search(query, corpus, top_k=candidates_per_method)
 
-    # RRF : chaque méthode contribue 1/(k + rang) par document, on additionne
     rrf_scores: dict[str, float] = {}
     payloads: dict[str, dict] = {}
 
@@ -80,15 +81,17 @@ def retrieve(query: str, top_k: int = 5, candidates_per_method: int = 30) -> lis
         rrf_scores[point_id] = rrf_scores.get(point_id, 0) + 1 / (RRF_K + rank + 1)
         payloads.setdefault(point_id, corpus_by_id.get(point_id))
 
-    ranked_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+    ranked_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:rerank_pool_size]
 
-    return [
+    candidates = [
         {
             "text": payloads[pid]["text"],
             "filename": payloads[pid]["filename"],
             "section": payloads[pid]["section"],
-            "score": round(score, 4),
+            "rrf_score": round(score, 4),
         }
         for pid, score in ranked_ids
         if payloads.get(pid) is not None
     ]
+
+    return rerank(query, candidates, top_k=top_k)

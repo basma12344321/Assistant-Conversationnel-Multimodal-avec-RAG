@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
 
     # Embeddings
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"  # multilingue FR/EN
+    
+    # Reranker
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # multilingue FR/EN
 
     # Qdrant
     qdrant_mode: str = "local"  # "local" (embarqué sur disque, pas besoin de Docker) ou "server" (via Docker)
