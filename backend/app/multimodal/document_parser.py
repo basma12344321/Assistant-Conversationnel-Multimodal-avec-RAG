@@ -186,6 +186,16 @@ def _find_heading_top(page, title: str) -> float:
 
     return candidates[0][1]
 
+def _strip_page_number_lines(text: str) -> str:
+    """Retire les lignes qui ne contiennent qu'un numéro de page isolé
+    (résidu de mise en page PDF — ex. "112" tout seul sur sa ligne entre deux
+    paragraphes). Ne touche pas aux vrais nombres ailleurs dans le texte
+    (dates, code, tailles...) puisqu'on ne cible que les lignes ENTIÈREMENT
+    composées d'un petit nombre, isolées.
+    """
+    lines = text.split("\n")
+    cleaned = [line for line in lines if not re.fullmatch(r"\s*\d{1,4}\s*", line)]
+    return "\n".join(cleaned)
 
 def _extract_section_text(pdf, item: dict, next_item: dict | None, total_pages: int) -> str:
     """Extrait le texte d'une section, du titre courant jusqu'au titre suivant
@@ -216,7 +226,7 @@ def _extract_section_text(pdf, item: dict, next_item: dict | None, total_pages: 
             cropped = last_page.within_bbox((0, 0, last_page.width, max(top_limit, 0.1)))
             parts.append(cropped.extract_text() or "")
 
-    return "\n\n".join(p.strip() for p in parts if p and p.strip())
+    return _strip_page_number_lines("\n\n".join(p.strip() for p in parts if p and p.strip()))
 
 def _estimate_body_font_size(pdf) -> float:
     """Estime la taille de police du corps de texte du document (la plus
